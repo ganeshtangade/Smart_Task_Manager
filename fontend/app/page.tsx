@@ -12,7 +12,7 @@ export default function HomePage() {
         if (user) {
             router.replace("/dashboard");
         } else {
-            router.replace("/login");
+            router.replace("/register");
         }
     }, [router]);
 
