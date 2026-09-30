@@ -14,7 +14,6 @@ import {
     completeTask,
 } from "../../services/api";
 
-
 // ==================================================
 // TYPES
 // ==================================================
@@ -60,191 +59,146 @@ type PriorityType =
     | "Medium"
     | "High";
 
-
 // ==================================================
 // COMPONENT
 // ==================================================
 
 export default function TasksPage() {
-
     const router = useRouter();
 
-
     // Logged-in user
-    const [user, setUser] =
-        useState<User | null>(null);
+    const [user, setUser] = useState<User | null>(null);
 
+    // All tasks currently displayed
+    const [tasks, setTasks] = useState<Task[]>([]);
 
-    // Tasks
-    const [tasks, setTasks] =
-        useState<Task[]>([]);
-
-
-    // Current view
-    const [view, setView] =
-        useState<ViewType>("all");
-
+    // Current task view
+    const [view, setView] = useState<ViewType>("all");
 
     // Priority filter
     const [priorityFilter, setPriorityFilter] =
         useState<PriorityType>("All");
 
+    // Page loading
+    const [loading, setLoading] = useState(true);
 
-    // Loading
-    const [loading, setLoading] =
-        useState(true);
-
-
-    // Action loading
+    // Loading state for Edit/Delete/Complete actions
     const [actionLoading, setActionLoading] =
         useState<number | null>(null);
 
-
-    // Message
-    const [message, setMessage] =
-        useState("");
-
+    // Success/error message
+    const [message, setMessage] = useState("");
 
     const [messageType, setMessageType] =
-        useState<"success" | "error">(
-            "success"
-        );
+        useState<"success" | "error">("success");
 
 
     // ==================================================
-    // CHECK LOGIN + LOAD PAGE
+    // CHECK LOGIN
     // ==================================================
 
     useEffect(() => {
+        const storedUser = localStorage.getItem("user");
 
-        const storedUser =
-            localStorage.getItem("user");
-
-
+        // If there is no logged-in user,
+        // redirect to the login page.
         if (!storedUser) {
-
             router.push("/login");
-
             return;
         }
 
-
         try {
-
             const loggedInUser: User =
                 JSON.parse(storedUser);
 
-
+            // Save logged-in user in state.
             setUser(loggedInUser);
 
+            // Read the current view from URL.
+            //
+            // /tasks
+            // /tasks?view=my
+            // /tasks?view=blocked
 
-            // Read ?view=my or ?view=blocked
-            const params =
-                new URLSearchParams(
-                    window.location.search
-                );
+            const params = new URLSearchParams(
+                window.location.search
+            );
 
+            const urlView = params.get("view");
 
-            const urlView =
-                params.get("view");
-
-
-            let initialView: ViewType =
-                "all";
-
+            let initialView: ViewType = "all";
 
             if (urlView === "my") {
-
                 initialView = "my";
-
-            } else if (
-                urlView === "blocked"
-            ) {
-
+            } else if (urlView === "blocked") {
                 initialView = "blocked";
             }
 
-
+            // Save the selected view.
             setView(initialView);
 
-
-            loadTasks(
-                initialView,
-                loggedInUser.id
-            );
-
         } catch (error) {
-
             console.error(
                 "User parsing error:",
                 error
             );
 
-
             localStorage.removeItem("user");
-
             router.push("/login");
         }
-
     }, [router]);
 
 
     // ==================================================
-    // LOAD TASKS
+    // LOAD TASKS FROM BACKEND
     // ==================================================
 
     async function loadTasks(
         selectedView: ViewType,
-        userId: number
+        userId: number,
+        showLoading: boolean = true
     ) {
-
         try {
-
-            setLoading(true);
-
-            setMessage("");
-
+            // Show loading screen only when needed.
+            //
+            // During automatic refresh we use false,
+            // so the whole page does not flash "Loading".
+            if (showLoading) {
+                setLoading(true);
+            }
 
             let result;
 
-
-            // -----------------------------
+            // ------------------------------------------
             // ALL TASKS
-            // -----------------------------
+            // ------------------------------------------
 
             if (selectedView === "all") {
-
-                result =
-                    await getTasks();
+                result = await getTasks();
             }
 
-
-            // -----------------------------
+            // ------------------------------------------
             // MY TASKS
-            // -----------------------------
+            // ------------------------------------------
 
-            else if (
-                selectedView === "my"
-            ) {
-
-                result =
-                    await getMyTasks(userId);
+            else if (selectedView === "my") {
+                result = await getMyTasks(userId);
             }
 
-
-            // -----------------------------
+            // ------------------------------------------
             // BLOCKED TASKS
-            // -----------------------------
+            // ------------------------------------------
 
             else {
-
-                result =
-                    await getBlockedTasks();
+                result = await getBlockedTasks();
             }
 
 
-            if (!result.success) {
+            // ------------------------------------------
+            // CHECK BACKEND RESPONSE
+            // ------------------------------------------
 
+            if (!result.success) {
                 setMessageType("error");
 
                 setMessage(
@@ -258,17 +212,14 @@ export default function TasksPage() {
             }
 
 
-            setTasks(
-                result.tasks || []
-            );
+            // Save latest task data.
+            setTasks(result.tasks || []);
 
         } catch (error) {
-
             console.error(
                 "Load tasks error:",
                 error
             );
-
 
             setMessageType("error");
 
@@ -277,50 +228,100 @@ export default function TasksPage() {
             );
 
         } finally {
-
-            setLoading(false);
+            if (showLoading) {
+                setLoading(false);
+            }
         }
     }
 
 
     // ==================================================
-    // CHANGE VIEW
+    // INITIAL LOAD + AUTOMATIC REFRESH
     // ==================================================
 
-    function changeView(
-        newView: ViewType
-    ) {
-
+    useEffect(() => {
+        // Do nothing until we know the logged-in user.
         if (!user) {
             return;
         }
 
-
-        setView(newView);
-
-
-        let url = "/tasks";
-
-
-        if (newView === "my") {
-
-            url = "/tasks?view=my";
-
-        } else if (
-            newView === "blocked"
-        ) {
-
-            url = "/tasks?view=blocked";
-        }
-
-
-        router.push(url);
-
+        // ------------------------------------------
+        // FIRST LOAD
+        // ------------------------------------------
 
         loadTasks(
-            newView,
-            user.id
+            view,
+            user.id,
+            true
         );
+
+
+        // ------------------------------------------
+        // AUTOMATIC REFRESH
+        // ------------------------------------------
+        //
+        // Every 5 seconds the frontend asks the
+        // backend for the latest task information.
+        //
+        // Example:
+        //
+        // User A creates a task
+        //        ↓
+        // Backend stores the task
+        //        ↓
+        // User B's page checks backend
+        //        ↓
+        // New task appears automatically
+        //
+        // This is polling / near-real-time updating.
+
+        const refreshInterval = setInterval(() => {
+            loadTasks(
+                view,
+                user.id,
+                false
+            );
+        }, 5000);
+
+
+        // ------------------------------------------
+        // CLEANUP
+        // ------------------------------------------
+        //
+        // Stop the timer when leaving the page
+        // or changing the task view.
+
+        return () => {
+            clearInterval(refreshInterval);
+        };
+
+    }, [user, view]);
+
+
+    // ==================================================
+    // CHANGE TASK VIEW
+    // ==================================================
+
+    function changeView(newView: ViewType) {
+        if (!user) {
+            return;
+        }
+
+        // Update the selected view.
+        setView(newView);
+
+        // Update browser URL.
+        if (newView === "all") {
+            router.push("/tasks");
+        } else if (newView === "my") {
+            router.push("/tasks?view=my");
+        } else {
+            router.push("/tasks?view=blocked");
+        }
+
+        // We do NOT call loadTasks here.
+        // The useEffect above will automatically
+        // load the new view when "view" changes.
     }
 
 
@@ -328,34 +329,23 @@ export default function TasksPage() {
     // DELETE TASK
     // ==================================================
 
-    async function handleDelete(
-        taskId: number
-    ) {
-
-        const confirmed =
-            window.confirm(
-                "Are you sure you want to delete this task?"
-            );
-
+    async function handleDelete(taskId: number) {
+        const confirmed = window.confirm(
+            "Are you sure you want to delete this task?"
+        );
 
         if (!confirmed) {
             return;
         }
 
-
         setActionLoading(taskId);
-
         setMessage("");
 
-
         try {
+            const result = await deleteTask(taskId);
 
-            const result =
-                await deleteTask(taskId);
-
-
+            // Backend returned an error.
             if (!result.success) {
-
                 setMessageType("error");
 
                 setMessage(
@@ -366,29 +356,27 @@ export default function TasksPage() {
                 return;
             }
 
-
+            // Show success message.
             setMessageType("success");
 
             setMessage(
                 "Task deleted successfully."
             );
 
-
+            // Immediately refresh the task list.
             if (user) {
-
                 await loadTasks(
                     view,
-                    user.id
+                    user.id,
+                    false
                 );
             }
 
         } catch (error) {
-
             console.error(
                 "Delete task error:",
                 error
             );
-
 
             setMessageType("error");
 
@@ -397,7 +385,6 @@ export default function TasksPage() {
             );
 
         } finally {
-
             setActionLoading(null);
         }
     }
@@ -407,23 +394,15 @@ export default function TasksPage() {
     // COMPLETE TASK
     // ==================================================
 
-    async function handleComplete(
-        taskId: number
-    ) {
-
+    async function handleComplete(taskId: number) {
         setActionLoading(taskId);
-
         setMessage("");
 
-
         try {
+            const result = await completeTask(taskId);
 
-            const result =
-                await completeTask(taskId);
-
-
+            // Dependency rule failure or other error.
             if (!result.success) {
-
                 setMessageType("error");
 
                 setMessage(
@@ -434,29 +413,27 @@ export default function TasksPage() {
                 return;
             }
 
-
+            // Show success message.
             setMessageType("success");
 
             setMessage(
                 "Task completed successfully."
             );
 
-
+            // Immediately refresh the task list.
             if (user) {
-
                 await loadTasks(
                     view,
-                    user.id
+                    user.id,
+                    false
                 );
             }
 
         } catch (error) {
-
             console.error(
                 "Complete task error:",
                 error
             );
-
 
             setMessageType("error");
 
@@ -465,32 +442,29 @@ export default function TasksPage() {
             );
 
         } finally {
-
             setActionLoading(null);
         }
     }
 
 
     // ==================================================
-    // FILTER BY PRIORITY
+    // PRIORITY FILTER
     // ==================================================
 
     const filteredTasks =
         priorityFilter === "All"
             ? tasks
             : tasks.filter(
-                task =>
-                    task.priority ===
-                    priorityFilter
+                (task) =>
+                    task.priority === priorityFilter
             );
 
 
     // ==================================================
-    // LOADING SCREEN
+    // INITIAL LOADING SCREEN
     // ==================================================
 
     if (loading) {
-
         return (
             <main className="min-h-screen bg-gray-100 flex items-center justify-center">
 
@@ -516,30 +490,21 @@ export default function TasksPage() {
     // ==================================================
 
     return (
-
         <main className="min-h-screen bg-gray-100">
 
-
-            {/* ==========================================
-                NAVBAR
-            ========================================== */}
-
+            {/* Navbar */}
             <Navbar />
 
 
-            {/* ==========================================
-                PAGE CONTENT
-            ========================================== */}
-
+            {/* Main content */}
             <section className="max-w-7xl mx-auto px-6 py-8">
 
 
-                {/* ==========================================
+                {/* ======================================
                     HEADER
-                ========================================== */}
+                ====================================== */}
 
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
-
 
                     <div>
 
@@ -552,7 +517,6 @@ export default function TasksPage() {
                                     : "Blocked Tasks"}
 
                         </h2>
-
 
                         <p className="text-gray-700 mt-2">
 
@@ -577,9 +541,9 @@ export default function TasksPage() {
                 </div>
 
 
-                {/* ==========================================
-                    VIEW FILTER
-                ========================================== */}
+                {/* ======================================
+                    TASK VIEW FILTER
+                ====================================== */}
 
                 <div className="bg-white rounded-2xl shadow p-5 mb-6">
 
@@ -587,9 +551,7 @@ export default function TasksPage() {
                         Task View
                     </p>
 
-
                     <div className="flex flex-wrap gap-3">
-
 
                         <button
                             onClick={() =>
@@ -633,20 +595,18 @@ export default function TasksPage() {
                         </button>
 
                     </div>
-
                 </div>
 
 
-                {/* ==========================================
+                {/* ======================================
                     PRIORITY FILTER
-                ========================================== */}
+                ====================================== */}
 
                 <div className="bg-white rounded-2xl shadow p-5 mb-6">
 
                     <p className="font-bold text-black mb-3">
                         Priority
                     </p>
-
 
                     <div className="flex flex-wrap gap-3">
 
@@ -657,57 +617,50 @@ export default function TasksPage() {
                                 "Medium",
                                 "High",
                             ] as PriorityType[]
-                        ).map(
-                            priority => (
+                        ).map((priority) => (
 
-                                <button
-                                    key={priority}
-                                    onClick={() =>
-                                        setPriorityFilter(
-                                            priority
-                                        )
-                                    }
-                                    className={
-                                        priorityFilter ===
+                            <button
+                                key={priority}
+                                onClick={() =>
+                                    setPriorityFilter(
                                         priority
-                                            ? "bg-black text-white px-5 py-2 rounded-lg font-semibold"
-                                            : "border border-gray-300 text-black px-5 py-2 rounded-lg font-semibold hover:bg-gray-100"
-                                    }
-                                >
-                                    {priority}
-                                </button>
+                                    )
+                                }
+                                className={
+                                    priorityFilter === priority
+                                        ? "bg-black text-white px-5 py-2 rounded-lg font-semibold"
+                                        : "border border-gray-300 text-black px-5 py-2 rounded-lg font-semibold hover:bg-gray-100"
+                                }
+                            >
+                                {priority}
+                            </button>
 
-                            )
-                        )}
+                        ))}
 
                     </div>
-
                 </div>
 
 
-                {/* ==========================================
+                {/* ======================================
                     MESSAGE
-                ========================================== */}
+                ====================================== */}
 
                 {message && (
-
                     <div
                         className={
-                            messageType ===
-                            "success"
+                            messageType === "success"
                                 ? "bg-green-100 text-green-800 border border-green-200 p-4 rounded-lg mb-6 font-medium"
                                 : "bg-red-100 text-red-800 border border-red-200 p-4 rounded-lg mb-6 font-medium"
                         }
                     >
                         {message}
                     </div>
-
                 )}
 
 
-                {/* ==========================================
+                {/* ======================================
                     TASK COUNT
-                ========================================== */}
+                ====================================== */}
 
                 <div className="mb-5">
 
@@ -721,8 +674,7 @@ export default function TasksPage() {
 
                         {" "}
                         task
-                        {filteredTasks.length !==
-                        1
+                        {filteredTasks.length !== 1
                             ? "s"
                             : ""}
 
@@ -731,12 +683,11 @@ export default function TasksPage() {
                 </div>
 
 
-                {/* ==========================================
+                {/* ======================================
                     NO TASKS
-                ========================================== */}
+                ====================================== */}
 
-                {filteredTasks.length ===
-                0 ? (
+                {filteredTasks.length === 0 ? (
 
                     <div className="bg-white rounded-2xl shadow p-12 text-center">
 
@@ -744,11 +695,9 @@ export default function TasksPage() {
                             No tasks found
                         </h3>
 
-
                         <p className="text-gray-600 mt-2">
                             There are no tasks in this view.
                         </p>
-
 
                         <Link
                             href="/tasks/create"
@@ -761,244 +710,209 @@ export default function TasksPage() {
 
                 ) : (
 
-
-                    /* ==========================================
+                    /* ==================================
                        TASK CARDS
-                    ========================================== */
+                    ================================== */
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-                        {filteredTasks.map(
-                            task => (
+                        {filteredTasks.map((task) => (
 
-                                <div
-                                    key={task.id}
-                                    className="bg-white rounded-2xl shadow p-6"
-                                >
+                            <div
+                                key={task.id}
+                                className="bg-white rounded-2xl shadow p-6"
+                            >
 
+                                {/* TITLE + PRIORITY */}
 
-                                    {/* -----------------------------
-                                        TITLE + PRIORITY
-                                    ----------------------------- */}
+                                <div className="flex items-start justify-between gap-4">
 
-                                    <div className="flex items-start justify-between gap-4">
+                                    <div>
 
-                                        <div>
+                                        <p className="text-xs text-gray-500">
+                                            Task #{task.id}
+                                        </p>
 
-                                            <p className="text-xs text-gray-500">
-                                                Task #{task.id}
-                                            </p>
-
-
-                                            <h3 className="text-xl font-bold text-black mt-1">
-                                                {task.title}
-                                            </h3>
-
-                                        </div>
-
-
-                                        {/* Priority */}
-
-                                        <span
-                                            className={
-                                                task.priority ===
-                                                "High"
-                                                    ? "bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-bold"
-                                                    : task.priority ===
-                                                        "Medium"
-                                                        ? "bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-xs font-bold"
-                                                        : "bg-gray-200 text-gray-700 px-3 py-1 rounded-full text-xs font-bold"
-                                            }
-                                        >
-                                            {task.priority}
-                                        </span>
+                                        <h3 className="text-xl font-bold text-black mt-1">
+                                            {task.title}
+                                        </h3>
 
                                     </div>
 
 
-                                    {/* -----------------------------
-                                        DESCRIPTION
-                                    ----------------------------- */}
+                                    <span
+                                        className={
+                                            task.priority === "High"
+                                                ? "bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-bold"
+                                                : task.priority === "Medium"
+                                                    ? "bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-xs font-bold"
+                                                    : "bg-gray-200 text-gray-700 px-3 py-1 rounded-full text-xs font-bold"
+                                        }
+                                    >
+                                        {task.priority}
+                                    </span>
 
-                                    <p className="text-gray-700 mt-4">
-                                        {task.description ||
-                                            "No description provided."}
+                                </div>
+
+
+                                {/* DESCRIPTION */}
+
+                                <p className="text-gray-700 mt-4">
+                                    {task.description ||
+                                        "No description provided."}
+                                </p>
+
+
+                                {/* STATUS */}
+
+                                <div className="flex flex-wrap gap-2 mt-4">
+
+                                    <span
+                                        className={
+                                            task.status === "Done"
+                                                ? "bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-semibold"
+                                                : task.status === "In Progress"
+                                                    ? "bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-semibold"
+                                                    : "bg-gray-200 text-gray-700 px-3 py-1 rounded-full text-xs font-semibold"
+                                        }
+                                    >
+                                        {task.status}
+                                    </span>
+
+
+                                    {task.blocked && (
+                                        <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-xs font-bold">
+                                            BLOCKED
+                                        </span>
+                                    )}
+
+                                </div>
+
+
+                                {/* ASSIGNMENT / DEPENDENCY */}
+
+                                <div className="mt-5 space-y-2 text-sm">
+
+                                    <p className="text-gray-700">
+
+                                        <span className="font-bold text-black">
+                                            Assigned to:
+                                        </span>
+
+                                        {" "}
+
+                                        {task.assignedUser
+                                            ? task.assignedUser.name
+                                            : "Unassigned"}
+
                                     </p>
 
 
-                                    {/* -----------------------------
-                                        STATUS
-                                    ----------------------------- */}
+                                    <p className="text-gray-700">
 
-                                    <div className="flex flex-wrap gap-2 mt-4">
-
-
-                                        <span
-                                            className={
-                                                task.status ===
-                                                "Done"
-                                                    ? "bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-semibold"
-                                                    : task.status ===
-                                                        "In Progress"
-                                                        ? "bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-semibold"
-                                                        : "bg-gray-200 text-gray-700 px-3 py-1 rounded-full text-xs font-semibold"
-                                            }
-                                        >
-                                            {task.status}
+                                        <span className="font-bold text-black">
+                                            Dependency:
                                         </span>
 
+                                        {" "}
 
-                                        {task.blocked && (
+                                        {task.dependency
+                                            ? `${task.dependency.title} (${task.dependency.status})`
+                                            : "None"}
 
-                                            <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-xs font-bold">
-                                                BLOCKED
-                                            </span>
+                                    </p>
 
-                                        )}
-
-                                    </div>
-
-
-                                    {/* -----------------------------
-                                        ASSIGNMENT / DEPENDENCY
-                                    ----------------------------- */}
-
-                                    <div className="mt-5 space-y-2 text-sm">
+                                </div>
 
 
-                                        <p className="text-gray-700">
+                                {/* BLOCKED INFORMATION */}
 
-                                            <span className="font-bold text-black">
-                                                Assigned to:
-                                            </span>
+                                {task.blocked &&
+                                    task.dependency && (
 
-                                            {" "}
+                                        <div className="mt-4 bg-orange-50 border border-orange-200 rounded-lg p-4">
 
-                                            {task.assignedUser
-                                                ? task.assignedUser.name
-                                                : "Unassigned"}
+                                            <p className="text-orange-800 text-sm">
 
-                                        </p>
+                                                This task is blocked until{" "}
 
+                                                <strong>
+                                                    {task.dependency.title}
+                                                </strong>{" "}
 
-                                        <p className="text-gray-700">
+                                                is completed.
 
-                                            <span className="font-bold text-black">
-                                                Dependency:
-                                            </span>
+                                            </p>
 
-                                            {" "}
-
-                                            {task.dependency
-                                                ? `${task.dependency.title} (${task.dependency.status})`
-                                                : "None"}
-
-                                        </p>
-
-                                    </div>
+                                        </div>
+                                    )}
 
 
-                                    {/* -----------------------------
-                                        BLOCKED INFORMATION
-                                    ----------------------------- */}
+                                {/* ACTION BUTTONS */}
 
-                                    {task.blocked &&
-                                        task.dependency && (
+                                <div className="flex flex-wrap gap-3 mt-6">
 
-                                            <div className="mt-4 bg-orange-50 border border-orange-200 rounded-lg p-4">
+                                    {/* EDIT */}
 
-                                                <p className="text-orange-800 text-sm">
-
-                                                    This task is blocked until{" "}
-
-                                                    <strong>
-                                                        {task.dependency.title}
-                                                    </strong>{" "}
-
-                                                    is completed.
-
-                                                </p>
-
-                                            </div>
-
-                                        )}
+                                    <Link
+                                        href={`/tasks/edit/${task.id}`}
+                                        className="border border-black text-black px-4 py-2 rounded-lg font-semibold hover:bg-gray-100"
+                                    >
+                                        Edit
+                                    </Link>
 
 
-                                    {/* -----------------------------
-                                        ACTION BUTTONS
-                                    ----------------------------- */}
+                                    {/* MARK DONE */}
 
-                                    <div className="flex flex-wrap gap-3 mt-6">
-
-
-                                        {/* Edit */}
-
-                                        <Link
-                                            href={`/tasks/edit/${task.id}`}
-                                            className="border border-black text-black px-4 py-2 rounded-lg font-semibold hover:bg-gray-100"
-                                        >
-                                            Edit
-                                        </Link>
-
-
-                                        {/* Mark Done */}
-
-                                        {task.status !==
-                                        "Done" ? (
-
-                                            <button
-                                                onClick={() =>
-                                                    handleComplete(
-                                                        task.id
-                                                    )
-                                                }
-                                                disabled={
-                                                    actionLoading ===
-                                                    task.id
-                                                }
-                                                className="bg-black text-white px-4 py-2 rounded-lg font-semibold hover:bg-gray-800 disabled:opacity-50"
-                                            >
-                                                {actionLoading ===
-                                                task.id
-                                                    ? "Please wait..."
-                                                    : "Mark Done"}
-                                            </button>
-
-                                        ) : (
-
-                                            <span className="bg-green-100 text-green-700 px-4 py-2 rounded-lg font-semibold">
-                                                Completed
-                                            </span>
-
-                                        )}
-
-
-                                        {/* Delete */}
+                                    {task.status !== "Done" ? (
 
                                         <button
                                             onClick={() =>
-                                                handleDelete(
+                                                handleComplete(
                                                     task.id
                                                 )
                                             }
                                             disabled={
-                                                actionLoading ===
-                                                task.id
+                                                actionLoading === task.id
                                             }
-                                            className="bg-red-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-red-700 disabled:opacity-50"
+                                            className="bg-black text-white px-4 py-2 rounded-lg font-semibold hover:bg-gray-800 disabled:opacity-50"
                                         >
-                                            Delete
+                                            {actionLoading === task.id
+                                                ? "Please wait..."
+                                                : "Mark Done"}
                                         </button>
 
-                                    </div>
+                                    ) : (
+
+                                        <span className="bg-green-100 text-green-700 px-4 py-2 rounded-lg font-semibold">
+                                            Completed
+                                        </span>
+
+                                    )}
+
+
+                                    {/* DELETE */}
+
+                                    <button
+                                        onClick={() =>
+                                            handleDelete(
+                                                task.id
+                                            )
+                                        }
+                                        disabled={
+                                            actionLoading === task.id
+                                        }
+                                        className="bg-red-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-red-700 disabled:opacity-50"
+                                    >
+                                        Delete
+                                    </button>
 
                                 </div>
 
-                            )
-                        )}
+                            </div>
+                        ))}
 
                     </div>
-
                 )}
 
             </section>
